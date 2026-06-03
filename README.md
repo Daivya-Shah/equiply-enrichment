@@ -42,7 +42,7 @@ flowchart LR
 
 ## My Approach: Accuracy First
 
-My focus for this hackathon was enrichment accuracy, meaning getting the manufactured dates and device types as correct and defensible as possible, rather than polishing the UI. (I have a solid foundation in both frontend and backend development — you can find more about my background on [my resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf).) The reason is simple: if a hospital is using this data for capital replacement planning or compliance audits, a wrong date is worse than no date. So I built the system to be honest about what it knows and what it is guessing. I have a solid foundation in both frontend and backend development — more about my background on [my resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf).
+My focus for this hackathon was enrichment accuracy, meaning getting the manufactured dates and device types as correct and defensible as possible, rather than polishing the UI. (I have a solid foundation in both frontend and backend development, more about my background on [my resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf).) The reason is simple: if a hospital is using this data for capital replacement planning or compliance audits, a wrong date is worse than no date. So I built the system to be honest about what it knows and what it is guessing.
 
 Every enriched row has:
 
