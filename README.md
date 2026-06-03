@@ -6,7 +6,7 @@ Equiply Hackathon Submission - Daivya Shah
 
 [Challenge CSV](https://drive.google.com/file/d/1Thci8EXv3x4h8NS9o7-rmyhcLEEE1W3Q/view?usp=sharing)
 
-[My Output](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
+[Enriched CSV](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing) (My Output)
 
 > **Note:** I ran the full dataset once using the OpenAI API key provided by Juan. You can verify token usage in the account dashboard.
 
