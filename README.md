@@ -1,9 +1,10 @@
 ﻿# Equipment Enrichment
 
-**Daivya Shah** | Equiply Hackathon Submission
+**Daivya Shah**
+Equiply Hackathon Submission
 
-[View Resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf)
-[Download Enriched CSV](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
+- [View Resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf)
+- [Download Enriched CSV](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
 
 > **Note:** I ran the full dataset once using the OpenAI API key provided by Juan. You can verify token usage in the account dashboard.
 
