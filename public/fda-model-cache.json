@@ -1,0 +1,149 @@
+{
+  "Covidien|RAPIDVAC": {
+    "k_number": "K142335",
+    "decision_date": "2015-01-14",
+    "floorYear": 2015,
+    "device_type": "RapidVac Smoke Evacuator System",
+    "manufactured_date": "2015-01-14"
+  },
+  "Edan Instruments|IM3": {
+    "k_number": "K202892",
+    "decision_date": "2021-01-28",
+    "floorYear": 2021,
+    "device_type": "Vital Signs Monitor:iM3s, iM3As, iM3Bs, iHM3s",
+    "manufactured_date": "2021-01-28"
+  },
+  "Edan Instruments|IM70": {
+    "k_number": "K131971",
+    "decision_date": "2014-03-20",
+    "floorYear": 2014,
+    "device_type": "IM60/IM70 PATIENT MONITOR",
+    "manufactured_date": "2014-03-20"
+  },
+  "Mindray|BENEVISION N15": {
+    "k_number": "K162607",
+    "decision_date": "2017-04-20",
+    "floorYear": 2017,
+    "device_type": "BeneVision Central Monitoring System",
+    "manufactured_date": "2017-04-20"
+  },
+  "Philips|INTELLIVUE MP20": {
+    "k_number": "K040304",
+    "decision_date": "2004-03-01",
+    "floorYear": 2004,
+    "device_type": "PHILIPS INTELLIVUE PATIENT MONITOR, MODELS MP40 & MP50",
+    "manufactured_date": "2004-03-01"
+  },
+  "Philips|INTELLIVUE MP30": {
+    "k_number": "K040304",
+    "decision_date": "2004-03-01",
+    "floorYear": 2004,
+    "device_type": "PHILIPS INTELLIVUE PATIENT MONITOR, MODELS MP40 & MP50",
+    "manufactured_date": "2004-03-01"
+  },
+  "Philips|INTELLIVUE MP50": {
+    "k_number": "K040304",
+    "decision_date": "2004-03-01",
+    "floorYear": 2004,
+    "device_type": "PHILIPS INTELLIVUE PATIENT MONITOR, MODELS MP40 & MP50",
+    "manufactured_date": "2004-03-01"
+  },
+  "Philips|INTELLIVUE MX40": {
+    "k_number": "K040304",
+    "decision_date": "2004-03-01",
+    "floorYear": 2004,
+    "device_type": "PHILIPS INTELLIVUE PATIENT MONITOR, MODELS MP40 & MP50",
+    "manufactured_date": "2004-03-01"
+  },
+  "Philips|M3002A": {
+    "k_number": "K081937",
+    "decision_date": "2008-08-29",
+    "floorYear": 2008,
+    "device_type": "PICOSAT II AND M3002A MULTIMEASUREMENT AND M1020B PLUG-IN MODULES SPO2  PULSE OXIMETRY MODULE",
+    "manufactured_date": "2008-08-29"
+  },
+  "Welch Allyn|SPOT VITAL SIGNS": {
+    "k_number": "K002530",
+    "decision_date": "2000-11-14",
+    "floorYear": 2000,
+    "device_type": "WELCH ALLYN SPOT CHECK DEVICE",
+    "manufactured_date": "2000-11-14"
+  },
+  "ZOLL Medical|M SERIES": {
+    "k_number": "K982992",
+    "decision_date": "1999-03-11",
+    "floorYear": 1999,
+    "device_type": "ZOLL M SERIES SPO2 OPTION",
+    "manufactured_date": "1999-03-11"
+  },
+  "ZOLL Medical|R Series Plus": {
+    "k_number": "K060559",
+    "decision_date": "2006-08-17",
+    "floorYear": 2006,
+    "device_type": "ZOLL R SERIES DEFIBRILLATOR",
+    "manufactured_date": "2006-08-17"
+  },
+  "ZOLL Medical|X Series": {
+    "k_number": "K112432",
+    "decision_date": "2012-03-21",
+    "floorYear": 2012,
+    "device_type": "ZOLL X SERIES",
+    "manufactured_date": "2012-03-21"
+  },
+  "ZOLL Medical|Propaq Md": {
+    "k_number": "K100654",
+    "decision_date": "2010-07-29",
+    "floorYear": 2010,
+    "device_type": "ZOLL PROPAQ MD",
+    "manufactured_date": "2010-07-29"
+  },
+  "ZOLL Medical|R Series ALS": {
+    "k_number": "K060559",
+    "decision_date": "2006-08-17",
+    "floorYear": 2006,
+    "device_type": "ZOLL R SERIES DEFIBRILLATOR",
+    "manufactured_date": "2006-08-17"
+  },
+  "ZOLL Medical|R Series": {
+    "k_number": "K060559",
+    "decision_date": "2006-08-17",
+    "floorYear": 2006,
+    "device_type": "ZOLL R SERIES DEFIBRILLATOR",
+    "manufactured_date": "2006-08-17"
+  },
+  "GE HEALTHCARE|APEX PRO CH": {
+    "k_number": "K052123",
+    "decision_date": "2005-12-22",
+    "floorYear": 2006,
+    "device_type": "APEX PRO CH Telemetry Transmitter",
+    "manufactured_date": "2005-12-22"
+  },
+  "ARJO INC.|FLOWTRON": {
+    "k_number": "K122330",
+    "decision_date": "2012-12-07",
+    "floorYear": 2012,
+    "device_type": "FLOWTRON FOOT GARMENT-REGULAR-STERILE FLOWTRON FOOT GARMENT-LARGE-STERILE",
+    "manufactured_date": "2012-12-07"
+  },
+  "GE HEALTHCARE|PATIENT DATA MODULE (PDM)": {
+    "k_number": "K760559",
+    "decision_date": "1976-09-10",
+    "floorYear": 1976,
+    "device_type": "PATIENT MONITORING SYSTEM",
+    "manufactured_date": "1976-09-10"
+  },
+  "BAXTER HEALTHCARE CORP.|SPECTRUM IQ": {
+    "k_number": "K133801",
+    "decision_date": "2014-05-07",
+    "floorYear": 2014,
+    "device_type": "BAXTER SIGMA SPECTRUM INFUSION PUMP WITH MASTER DRUG LIBRARY",
+    "manufactured_date": "2014-05-07"
+  },
+  "PHILIPS|MX500": {
+    "k_number": "K131872",
+    "decision_date": "2013-10-17",
+    "floorYear": 2013,
+    "device_type": "INTELLIVUE PATIENT MONITOR MX500, INTELLIVUE PATIENT MONITOR MX550",
+    "manufactured_date": "2013-10-17"
+  }
+}
