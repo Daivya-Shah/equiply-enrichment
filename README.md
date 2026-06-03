@@ -4,6 +4,8 @@
 
 [View Resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf) &nbsp;&nbsp; [Download Enriched CSV](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
 
+> **Note:** I ran the full dataset once using the OpenAI API key provided by Juan — you can verify token usage in the account dashboard.
+
 ---
 
 ## What I Built
@@ -40,7 +42,7 @@ flowchart LR
 
 ## My Approach: Accuracy First
 
-My focus for this hackathon was enrichment accuracy, meaning getting the manufactured dates and device types as correct and defensible as possible, rather than polishing the UI. The reason is simple: if a hospital is using this data for capital replacement planning or compliance audits, a wrong date is worse than no date. So I built the system to be honest about what it knows and what it is guessing.
+My focus for this hackathon was enrichment accuracy, meaning getting the manufactured dates and device types as correct and defensible as possible, rather than polishing the UI. (I have a solid foundation in both frontend and backend development — you can find more about my background on [my resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf).) The reason is simple: if a hospital is using this data for capital replacement planning or compliance audits, a wrong date is worse than no date. So I built the system to be honest about what it knows and what it is guessing. I have a solid foundation in both frontend and backend development — more about my background on [my resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf).
 
 Every enriched row has:
 
@@ -231,8 +233,6 @@ GPT is used in exactly two places, both with tight token budgets. The first call
 
 Both calls use `response_format: json_schema, strict: true`, which forces OpenAI to return valid JSON matching the exact schema every time. GPT is never called if the API key is missing or not configured.
 
-I ran the full 801-row dataset once using the OpenAI API key provided by Juan, so you can check the token usage in the account dashboard.
-
 ### Smart Conflict Resolution
 
 When the FDA database returns a device type label that conflicts with what the manufacturer-and-model keyword rules say, the FDA label is rejected in favor of the rule. For example, if FDA UDI returns "PATIENT DATA MODULE" for a ZOLL defibrillator, the rule that maps ZOLL to "Defibrillator/Cardiac" takes priority. This prevents FDA labeling artifacts from contaminating the output.
@@ -333,8 +333,3 @@ The enriched CSV contains the original three columns plus:
 
 [Download the enriched output here](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
 
----
-
-## About Me
-
-I have a solid foundation in both frontend and backend development. You can find more about my background on [my resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf).
