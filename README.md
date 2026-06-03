@@ -1,8 +1,8 @@
 ﻿# Equipment Enrichment
 
-**Hackathon submission for Equiply | Daivya Shah**
+**Daivya Shah** | Equiply Hackathon Submission
 
-[Resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf) | [Enriched CSV Output](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
+[View Resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf) &nbsp;&nbsp; [Download Enriched CSV](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
 
 ---
 
@@ -40,24 +40,13 @@ Before the waterfall begins, two independent tasks fire in parallel using `Promi
 
 These two tasks are completely independent so there is no reason to run them sequentially. Firing them in parallel cuts the per-row latency roughly in half for the rows that need both.
 
-### Step 1 - Manufacturer-Specific Serial Number Decoders
+### Step 1 - Serial Date Extraction (Tavily + GPT)
 
-I built serial number decoders for every manufacturer in the dataset. These are the highest-confidence path (up to 0.94) because a correctly decoded serial number gives you the exact manufacture date directly from the device itself, with no proxy or estimation involved.
+This step uses the Tavily + GPT result from Step 0. When GPT successfully extracts a date from the serial number using the manufacturer-specific format documentation retrieved by Tavily, this is the highest-confidence path (up to 0.94) because the date comes directly from the device itself, with no proxy or estimation involved.
 
-Each decoder is manufacturer-specific because OEMs encode dates differently. For example:
+OEMs encode dates in very different ways. Some embed a two-digit year followed by a letter code representing the month. Others use a full YYYYMMDD substring, a Julian day-of-year pattern, or a product-family prefix followed by a year digit. Tavily surfaces the relevant documentation for each manufacturer at query time, and GPT applies the correct decoding logic to the specific serial number.
 
-- **ZOLL** uses a letter suffix for the month (A = January, B = February, ... L = December) following a two-digit year prefix. A serial like `T15G` decodes to July 2015.
-- **GE** telemetry units (Apex Pro, Patient Data Modules) use a 3-letter prefix followed by a two-digit year. `RTS21` decodes to 2021, `SA315` decodes to 2015.
-- **Edan** uses an `M+YY` or `K+YY` pattern embedded in the serial. `M22` = 2022, `K24` = 2024.
-- **Hill-Rom** P3200 and Century beds use a letter-plus-Julian-day encoding. The letter maps to a year (A=2001, B=2002, ...) and the following three digits are the day of year, giving a full precise date.
-- **Cogentix** uses a `CS+YY+MM` prefix, giving both year and month.
-- **Jiangmen** uses a `WU+YYYYMMDD` format embedded in the serial.
-- **GS1 AI (11)** - any manufacturer that stamps a GS1 `(11)YYMMDD` application identifier gets parsed with full date precision.
-- **Baxter, Masimo, Arjo, BIOSONIC, ADC, LabCorp, Philips, Stryker, Welch Allyn, Thermo, Unico, Exergen** all have their own patterns handled individually.
-
-For serial methods where the encoding is known to be an unverified hypothesis (no public OEM documentation confirms it), confidence is automatically capped at 0.74 and the notes are flagged with "Serial year decode unverified."
-
-The LLM serial decode result from Step 0 takes priority over the built-in decoders. If GPT successfully decoded the serial using the Tavily web search context, that result is used. GPT confidence is capped at 0.82 regardless of what it returns.
+For cases where the encoding cannot be confirmed with high certainty, confidence is automatically capped at 0.74 and the audit notes are flagged with "Serial year decode unverified." GPT confidence is capped at 0.82 regardless of what it returns.
 
 ### Step 2 - FDA UDI Exact Match
 
@@ -95,9 +84,7 @@ One specific exception worth calling out: GE serial decodes (RTS/RT9/SA3/SPX pre
 
 | Source | Confidence Range | Description |
 |---|---|---|
-| Serial decode (month-precise) | 0.92 - 0.94 | Direct from device serial number |
-| Serial decode (year only) | 0.84 - 0.86 | Direct from device serial number |
-| LLM serial decode (Tavily + GPT) | up to 0.82 | Web-sourced serial format docs |
+| Serial decode (Tavily + GPT) | 0.74 - 0.94 | Manufacturer format docs + GPT extraction |
 | FDA UDI exact match | 0.72 - 0.90 | Official FDA device database |
 | FDA UDI fuzzy match | 0.68 - 0.88 | Official FDA device database |
 | FDA 510(k) | 0.58 - 0.82 | Regulatory clearance floor date |
@@ -138,7 +125,7 @@ Four separate caching layers minimize redundant API calls:
 
 GPT is used in two places, both with tight token budgets:
 
-- **Serial decode**: `max_tokens: 150`, `gpt-5.4-mini`. Returns a JSON object with `manufactured_date`, `confidence`, and `method`. Skipped entirely if the serial was already decoded by a built-in decoder.
+- **Serial decode**: `max_tokens: 150`, `gpt-5.4-mini`. Returns a JSON object with `manufactured_date`, `confidence`, and `method`. Skipped entirely if the serial was already decoded in a prior step.
 - **Device classification**: `max_tokens: 100`, `gpt-5.4-mini`. Returns `device_type`, `estimated_year`, `confidence`, and `reasoning`. Only called as a last resort after all deterministic sources have been exhausted.
 
 Both calls use OpenAI's structured output mode (`response_format: json_schema, strict: true`), which eliminates any JSON parsing failures and ensures the model stays within the defined schema. GPT is never called if the API key is missing or not configured.
@@ -189,7 +176,7 @@ When the FDA database returns a device type label that conflicts with what the m
 src/
   lib/
     enrichRow.ts          - Main 8-step pipeline, row memoization
-    serialParse.ts        - Manufacturer-specific serial number decoders
+    serialParse.ts        - Serial date extraction and validation logic
     fda.ts                - openFDA UDI and 510(k) queries with scoring
     fdaCache.ts           - Static cache loader for pre-built 510(k) data
     llm.ts                - GPT serial decode and device classification
@@ -233,7 +220,7 @@ VITE_TAVILY_API_KEY=...
 VITE_FDA_API_KEY=...    # optional - a public fallback key is included
 ```
 
-The app degrades gracefully if keys are missing: Tavily and GPT are skipped, and the pipeline falls back to serial decoders, FDA UDI/510(k), and model anchors, which still cover the majority of the dataset.
+The app degrades gracefully if keys are missing: Tavily and GPT are skipped, and the pipeline falls back to FDA UDI/510(k) and model anchors, which still cover the majority of the dataset.
 
 ---
 
