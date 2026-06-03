@@ -12,6 +12,30 @@ I built a React application that takes a hospital equipment CSV (columns: `manuf
 
 The input dataset had 801 rows across a wide range of medical device manufacturers. The application processes all of them concurrently, pulling from multiple data sources in a smart, layered way to fill in as many dates and device types as possible.
 
+### System Overview
+
+```mermaid
+flowchart LR
+    CSV["hospital_equipment.csv\n801 rows\nmanufacturer, model, serial_number"]
+    UP["CSV Upload\nPapaParse"]
+    PL["Enrichment Pipeline\n10 rows concurrently\nvia p-limit"]
+    OUT["Enriched Dataset\nmanufactured_date\ndevice_type\nconfidence · source · notes"]
+
+    CSV --> UP --> PL --> OUT
+    OUT --> TABLE["Sorted Table\nConfidence badges\nAudit tooltips"]
+    OUT --> EXPORT["CSV Export"]
+
+    subgraph APIS ["External Data Sources — queried per row"]
+        TAV["Tavily Search API\nSerial number format docs"]
+        GPT["OpenAI GPT\ngpt-5.4-mini"]
+        UDI["openFDA UDI\nDevice database"]
+        K510["openFDA 510k\nClearance records"]
+        SC["Static JSON Cache\n21 pre-fetched entries"]
+    end
+
+    PL <--> APIS
+```
+
 ---
 
 ## My Approach: Accuracy First
@@ -19,88 +43,131 @@ The input dataset had 801 rows across a wide range of medical device manufacture
 My focus for this hackathon was enrichment accuracy, meaning getting the manufactured dates and device types as correct and defensible as possible, rather than polishing the UI. The reason is simple: if a hospital is using this data for capital replacement planning or compliance audits, a wrong date is worse than no date. So I built the system to be honest about what it knows and what it is guessing.
 
 Every enriched row has:
-- A `confidence` score (0.0 to 1.0) that reflects how much I trust the source
-- A `source` field that tells you exactly where the data came from
-- A `notes` field with a full audit trail, including the specific method used, any FDA K-number citations, and the production window bounds applied
 
-The UI surfaces this through color-coded confidence badges (green for high, blue for medium, amber for low) and a tooltip on every row that shows the full audit trail. FDA 510(k) K-numbers in the notes are automatically linked to the FDA CDRH database.
+| Field | Purpose |
+|---|---|
+| `manufactured_date` | ISO 8601 date. Month/day set to `06-15` when only year precision is known, making estimates visually distinct from exact dates. |
+| `device_type` | One of 13 standardized categories, regardless of which source provided the raw label. |
+| `confidence` | 0.0 to 1.0. Calculated mechanically from the source, not a subjective score. Reduced automatically if a date was clamped or the encoding method is unverified. |
+| `source` | Exactly which data source produced the result: `serial_parse`, `fda_udi_exact`, `fda_udi_fuzzy`, `fda_510k`, `model_reference`, `llm`, or `none`. |
+| `notes` | Full audit trail: the decoding method used, FDA K-number citations, and the production window bounds applied. K-numbers link directly to the FDA CDRH database in the UI. |
 
 ---
 
 ## The Enrichment Pipeline
 
-The core of the application is an 8-step waterfall in `src/lib/enrichRow.ts`. The first step that successfully produces a result wins, and the pipeline immediately moves on. Steps are skipped when their data source clearly will not add anything useful.
+The core of the application is an 8-step waterfall in `src/lib/enrichRow.ts`. The first step that produces a result wins and the pipeline moves on immediately. The diagram below shows the full decision flow for every row.
 
-### Step 0 - Parallel Prefetch (fires immediately for every row)
+### Pipeline Flowchart
 
-Before the waterfall begins, two independent tasks fire in parallel using `Promise.all`:
+```mermaid
+flowchart TD
+    INPUT["CSV Row\nmanufacturer · model · serial_number"]
 
-1. **FDA 510(k) lookup** - queries the FDA 510(k) clearance database (or a pre-built static cache first) for the manufacturer and model. The 510(k) clearance date gives a hard floor: the device cannot have been manufactured before regulatory approval.
-2. **Tavily web search + GPT serial decode** - searches the web for documentation on how this manufacturer encodes dates in their serial numbers, then passes that context to GPT to extract a manufacture date from the specific serial number.
+    subgraph P0 ["Step 0 — Fired in Parallel via Promise.all"]
+        direction LR
+        K510P["FDA 510k Lookup\nStatic cache first, then live API"]
+        TLMP["Tavily Web Search + GPT\nSerial number date decode"]
+    end
 
-These two tasks are completely independent so there is no reason to run them sequentially. Firing them in parallel cuts the per-row latency roughly in half for the rows that need both.
+    INPUT --> P0
 
-### Step 1 - Serial Date Extraction (Tavily + GPT)
+    P0 --> S1{"Step 1\nSerial date\ndecoded?"}
+    S1 -->|"Yes · conf 0.74 to 0.94"| GUARD
+    S1 -->|No| S2
 
-This step uses the Tavily + GPT result from Step 0. When GPT successfully extracts a date from the serial number using the manufacturer-specific format documentation retrieved by Tavily, this is the highest-confidence path (up to 0.94) because the date comes directly from the device itself, with no proxy or estimation involved.
+    S2{"Step 2\nFDA UDI\nexact match?"}
+    S2 -->|"Yes · conf 0.72 to 0.90"| GUARD
+    S2 -->|No| S3
 
-OEMs encode dates in very different ways. Some embed a two-digit year followed by a letter code representing the month. Others use a full YYYYMMDD substring, a Julian day-of-year pattern, or a product-family prefix followed by a year digit. Tavily surfaces the relevant documentation for each manufacturer at query time, and GPT applies the correct decoding logic to the specific serial number.
+    S3{"Step 3\nFDA UDI\nfuzzy match?"}
+    S3 -->|"Yes · conf 0.68 to 0.88"| GUARD
+    S3 -->|No| S4
 
-For cases where the encoding cannot be confirmed with high certainty, confidence is automatically capped at 0.74 and the audit notes are flagged with "Serial year decode unverified." GPT confidence is capped at 0.82 regardless of what it returns.
+    S4{"Step 4\nModel anchor\n+ rule type?"}
+    S4 -->|"Yes · conf 0.50 to 0.68"| GUARD
+    S4 -->|No| S5
 
-### Step 2 - FDA UDI Exact Match
+    S5{"Step 5\nFDA 510k\nresult?"}
+    S5 -->|"Yes · conf 0.58 to 0.82"| GUARD
+    S5 -->|No| S6
 
-Queries the FDA Unique Device Identification database with an exact match on `company_name` and `version_or_model_number`. Results are scored and ranked by how well they match the manufacturer and model tokens before accepting. The `publish_date` from the UDI record is used as a date proxy (noted as such in the audit trail). Confidence: 0.72 to 0.90.
+    S6{"Step 6\nProduct-line year\n+ FDA type?"}
+    S6 -->|"Yes · conf 0.70"| GUARD
+    S6 -->|No| S7
 
-### Step 3 - FDA UDI Fuzzy Match
+    S7["Step 7 — GPT Last Resort\nClassify type + estimate year\nconf 0.42 to 0.72"]
+    S7 --> GUARD
 
-Same database but with prefix wildcards on both fields, plus a fallback search against `brand_name`. Requires a minimum match score of 5 to avoid false positives. Confidence: 0.68 to 0.88.
+    GUARD["Date Guardrails\nClamp date to FDA / market window\nReduce confidence if adjusted\nAppend audit note"]
+    GUARD --> OUT["Enriched Row\nmanufactured_date · device_type · confidence · source · notes"]
+```
 
-### Step 4 - Model Rules + Product-Line Year
+### Step-by-Step Breakdown
 
-For manufacturers and models with well-known production windows (like the Hospira Plum A+, ZOLL M Series, Philips IntelliVue line, etc.), I curated a table of 37 model anchors in `src/lib/modelAnchors.ts`. Each anchor has a floor year, ceiling year, typical mid-window year, and often a specific FDA K-number. If the serial could not be decoded but the device type is known and an anchor exists, the `typicalYear` is used as an estimate (formatted as `YYYY-06-15` to clearly signal it is a mid-year estimate, not a precise date). Confidence: 0.50 to 0.68 depending on how well-defined the production window is.
-
-### Step 5 - FDA 510(k) as Date Floor
-
-Uses the prefetched 510(k) result from Step 0. The clearance date is used as the manufactured date with a clear note that it is a regulatory floor, not the actual build date. The device type from the 510(k) submission is also run through a re-classification step: model/manufacturer keyword rules are checked first, and if they disagree with the FDA label, GPT re-classifies it. Confidence: 0.58 to 0.82.
-
-### Step 6 - Product-Line Year + FDA Device Type
-
-Combines the model anchor's typical year with a UDI-sourced device type for rows where neither the serial nor the 510(k) provided a complete result. Confidence: 0.70.
-
-### Step 7 - GPT Last Resort
-
-If all other steps fail, GPT classifies the device type and estimates a manufacture year, constrained to the model anchor window if one exists. Confidence: 0.42 to 0.72 depending on how much context is available.
+| Step | Name | Data Source | What It Does | Confidence |
+|---|---|---|---|---|
+| 0 | Parallel Prefetch | FDA 510k + Tavily + GPT | Fires both the 510k lookup and the Tavily + GPT serial decode simultaneously. Neither waits for the other. Results are held and used by later steps. | N/A |
+| 1 | Serial Date Extraction | Tavily + GPT | GPT uses the manufacturer serial format documentation found by Tavily to extract an exact manufacture date from the serial number. Highest-confidence path because it reads the date directly off the device. | 0.74 to 0.94 |
+| 2 | FDA UDI Exact Match | openFDA UDI API | Queries the FDA Unique Device Identification database with exact `company_name` and `version_or_model_number` match. Results are scored and ranked before accepting. `publish_date` used as date proxy. | 0.72 to 0.90 |
+| 3 | FDA UDI Fuzzy Match | openFDA UDI API | Same database but with prefix wildcards and a `brand_name` fallback. Minimum match score of 5 required to avoid false positives. | 0.68 to 0.88 |
+| 4 | Model Anchor + Rule Type | Curated anchor table (37 entries) | For well-known product lines, uses a curated table of floor/ceiling/typical years. The `typicalYear` becomes the manufactured date estimate as `YYYY-06-15`. | 0.50 to 0.68 |
+| 5 | FDA 510k as Date Floor | openFDA 510k API | Uses the prefetched 510k clearance date as a regulatory floor for the manufacture date. Device type is re-classified by keyword rules or GPT if it conflicts with known device rules. | 0.58 to 0.82 |
+| 6 | Product-Line Year + FDA Type | Anchor table + openFDA UDI | Combines the model anchor typical year with a UDI-sourced device type for rows where no other source worked. | 0.70 |
+| 7 | GPT Last Resort | OpenAI GPT | GPT classifies the device type and estimates a manufacture year, constrained to the model anchor window. Only called after all other steps fail. | 0.42 to 0.72 |
 
 ### Date Guardrails
 
-Every date produced by any step is passed through `src/lib/dateGuardrails.ts` before the row is finalized. This clamps the date to `[floorYear, ceilingYear]` derived from the model anchor and the 510(k) floor. If the date gets adjusted, confidence is reduced and a note is appended explaining the adjustment.
+Every date produced by any step is passed through `src/lib/dateGuardrails.ts` before the row is finalized. This clamps the date to `[floorYear, ceilingYear]` derived from the model anchor table and the 510k floor. If the date gets adjusted, confidence is reduced and a note is appended explaining the adjustment.
 
-One specific exception worth calling out: GE serial decodes (RTS/RT9/SA3/SPX prefix format) are ceiling-clamped only, never raised to the FDA floor. This is because the GE 510(k) clearance dates are often from the 1990s for device families that stayed in production for decades, and blindly raising a serial-decoded 2015 date to a 1990s floor would be wrong.
+One specific exception: GE serial decodes are ceiling-clamped only, never raised to the FDA floor. This is because GE 510k clearance dates are often from the 1990s for device families that stayed in production for decades, and blindly raising a serial-decoded 2015 date to a 1990s floor would be wrong.
 
 ---
 
 ## Data Sources and Confidence Ranges
 
-| Source | Confidence Range | Description |
+The confidence score for every row is calculated mechanically based on the source, not assigned subjectively. The table below shows the full range.
+
+| Source | Confidence Range | How Trustworthy | Description |
+|---|---|---|---|
+| Serial decode (Tavily + GPT) | 0.74 to 0.94 | Highest | Date read directly from device serial number |
+| FDA UDI exact match | 0.72 to 0.90 | Very high | Exact match in official FDA device registry |
+| FDA UDI fuzzy match | 0.68 to 0.88 | High | Fuzzy match in FDA registry, scored for relevance |
+| FDA 510k clearance | 0.58 to 0.82 | Medium-high | Regulatory clearance date used as a floor |
+| Model reference (anchor) | 0.50 to 0.68 | Medium | Estimate from curated product-line release window |
+| GPT classification | 0.42 to 0.72 | Lower | AI estimate when no structured source matched |
+| None | 0.0 | No data | No source produced a result |
+
+The UI maps these ranges to badge colors:
+
+| Badge Color | Confidence Threshold | Meaning |
 |---|---|---|
-| Serial decode (Tavily + GPT) | 0.74 - 0.94 | Manufacturer format docs + GPT extraction |
-| FDA UDI exact match | 0.72 - 0.90 | Official FDA device database |
-| FDA UDI fuzzy match | 0.68 - 0.88 | Official FDA device database |
-| FDA 510(k) | 0.58 - 0.82 | Regulatory clearance floor date |
-| Model reference (product-line anchor) | 0.50 - 0.68 | Curated production window |
-| LLM classification | 0.42 - 0.72 | GPT fallback with anchor context |
-| None | 0.0 | No source matched |
+| Green | >= 0.80 | High confidence — reliable for decision-making |
+| Blue | 0.65 to 0.79 | Medium confidence — reasonable estimate |
+| Amber | > 0.0 and < 0.65 | Low confidence — hypothesis only, review recommended |
+| None (dash) | 0.0 | Unenriched |
 
 ---
 
 ## Device Type Taxonomy
 
-All device types are normalized to one of 13 fixed categories regardless of which data source produced them:
+All device types are normalized to one of 13 fixed categories regardless of which data source produced them. Raw FDA labels (which can be verbose or inconsistent) are translated by keyword rules in `src/lib/taxonomy.ts`, with GPT as a fallback.
 
-`Imaging/Radiology` | `Patient Monitoring` | `Infusion/Pump` | `Ventilator/Respiratory` | `Surgical` | `Diagnostic/Lab` | `Dialysis` | `Defibrillator/Cardiac` | `Endoscopy` | `Sterilization` | `Ultrasound` | `Other` | `Unknown`
-
-The translation from raw FDA labels (which can be verbose, like "PATIENT DATA MODULE, PHYSIOLOGICAL MONITORING SYSTEM") to these categories happens in `src/lib/taxonomy.ts` using keyword rules, with GPT as a fallback for labels that do not match any rule.
+| Category | Example Devices |
+|---|---|
+| Patient Monitoring | Bedside monitors, telemetry units, pulse oximeters, thermometers, stretchers and beds |
+| Defibrillator/Cardiac | AEDs, defibrillators, cardiac monitors |
+| Infusion/Pump | IV infusion pumps, syringe pumps |
+| Diagnostic/Lab | Thermometers, analyzers, centrifuges, lab instruments |
+| Imaging/Radiology | MRI, CT, X-ray systems |
+| Ultrasound | Ultrasound units and probes |
+| Endoscopy | Endoscopes, endoscopy towers |
+| Surgical | Electrosurgical units, surgical tools |
+| Ventilator/Respiratory | Ventilators, respiratory support devices |
+| Dialysis | Dialysis machines |
+| Sterilization | Autoclaves, sterilization systems |
+| Other | Compression devices, specialized equipment |
+| Unknown | Could not be determined |
 
 ---
 
@@ -108,27 +175,61 @@ The translation from raw FDA labels (which can be verbose, like "PATIENT DATA MO
 
 ### Parallel API Calls
 
-For every row, the 510(k) lookup and the Tavily + GPT serial decode fire simultaneously via `Promise.all`. These two tasks are completely independent and together typically take 6 to 10 seconds if both hit the network. Running them in parallel means the total time is the maximum of the two, not the sum.
+For every row, the 510k lookup and the Tavily + GPT serial decode fire simultaneously via `Promise.all`. These two tasks are completely independent, and together they typically take 6 to 10 seconds when hitting the network. Running them in parallel means the total time per row is the maximum of the two, not the sum.
 
-At the dataset level, rows are processed 10 at a time using `p-limit` with a concurrency of 10. All 801 rows run through the pipeline in batches of 10, with a live progress bar updating after each row completes.
+At the dataset level, rows are processed 10 at a time using `p-limit`. All 801 rows run through the pipeline in batches of 10, with a live progress bar updating after each row completes.
+
+```
+Without parallelism:  [510k: 4s] + [Tavily+GPT: 8s] = 12s per row
+With parallelism:     max([510k: 4s], [Tavily+GPT: 8s]) = 8s per row
+```
 
 ### Multi-Tier Caching
 
-Four separate caching layers minimize redundant API calls:
+Four separate caching layers minimize redundant API calls across the 801-row dataset.
 
-1. **Static pre-built cache** (`public/fda-model-cache.json`) - a JSON file with 21 pre-fetched 510(k) entries for the most common manufacturer-model pairs in the dataset, built offline before the demo using `scripts/build-fda-cache.mts`. These are served as a static file and checked before any live FDA query fires.
-2. **In-flight deduplication** - a `Map<url, Promise>` in `fda.ts` ensures that if two rows trigger the exact same FDA API call simultaneously, only one HTTP request is made and both rows await the same promise.
-3. **Tavily localStorage cache** - Tavily web search results are persisted to `localStorage` under the key `equiply:tavily_serial_formats`. On subsequent runs, the cached context is returned instantly without hitting the Tavily API again. An in-memory Map layer sits in front of this for within-session deduplication.
-4. **Row-level memoization** - `enrichRow()` uses a `Map<cacheKey, Promise<EnrichedRow>>` so identical rows (same manufacturer, model, and serial) are only enriched once per session.
+```mermaid
+flowchart TD
+    REQ["Incoming request\nmanufacturer + model + serial"]
+
+    REQ --> M1{"Row memoization\nMap in enrichRow.ts"}
+    M1 -->|"Hit — same row seen before"| R0["Return instantly\nzero API calls"]
+    M1 -->|Miss| BOTH
+
+    BOTH["Fires both paths below in parallel"]
+
+    subgraph FDA ["FDA 510k Cache Chain"]
+        C1{"Static JSON cache\npublic/fda-model-cache.json\n21 pre-fetched entries"}
+        C1 -->|Hit| R1["Return stored result\nno HTTP request"]
+        C1 -->|Miss| C2{"In-flight dedup\nfetchCache Map in fda.ts"}
+        C2 -->|"URL already in-flight"| R2["Await shared promise\n1 HTTP request serves N rows"]
+        C2 -->|New request| R3["Live FDA API call\n8s timeout"]
+    end
+
+    subgraph TAV ["Tavily Cache Chain"]
+        T1{"localStorage cache\nequiply:tavily_serial_formats\npersists across reloads"}
+        T1 -->|Hit| TR1["Return persisted result\nno network call"]
+        T1 -->|Miss| T2{"In-memory memCache\nprevents duplicate in-flight requests"}
+        T2 -->|Hit| TR1
+        T2 -->|Miss| TR2["Live Tavily API call\n6s timeout"]
+        TR2 --> TS["Save to localStorage + memCache"]
+        TS --> TR1
+    end
+
+    BOTH --> C1
+    BOTH --> T1
+```
 
 ### Low Token Usage
 
-GPT is used in two places, both with tight token budgets:
+GPT is used in exactly two places, both with tight token budgets. The first call is skipped entirely if a prior step already decoded the serial. The second is only called as a last resort.
 
-- **Serial decode**: `max_tokens: 150`, `gpt-5.4-mini`. Returns a JSON object with `manufactured_date`, `confidence`, and `method`. Skipped entirely if the serial was already decoded in a prior step.
-- **Device classification**: `max_tokens: 100`, `gpt-5.4-mini`. Returns `device_type`, `estimated_year`, `confidence`, and `reasoning`. Only called as a last resort after all deterministic sources have been exhausted.
+| GPT Call | Model | max_tokens | When Called | Output Schema |
+|---|---|---|---|---|
+| Serial decode | gpt-5.4-mini | 150 | If Tavily found relevant docs and serial was not decoded yet | `manufactured_date`, `confidence`, `method` |
+| Device classification | gpt-5.4-mini | 100 | Only if all 6 deterministic steps failed | `device_type`, `estimated_year`, `confidence`, `reasoning` |
 
-Both calls use OpenAI's structured output mode (`response_format: json_schema, strict: true`), which eliminates any JSON parsing failures and ensures the model stays within the defined schema. GPT is never called if the API key is missing or not configured.
+Both calls use `response_format: json_schema, strict: true`, which forces OpenAI to return valid JSON matching the exact schema every time. GPT is never called if the API key is missing or not configured.
 
 I ran the full 801-row dataset once using the OpenAI API key provided by Juan, so you can check the token usage in the account dashboard.
 
@@ -140,33 +241,31 @@ When the FDA database returns a device type label that conflicts with what the m
 
 ## Application Features
 
-**CSV Upload** - drag-and-drop or file picker. Handles the `serial number` column name with a space (as in the challenge dataset) by normalizing headers on parse.
-
-**Enrichment Table** - sorted ascending by manufactured date as required. Filterable by confidence tier (high/medium/low), device type, and free-text search across manufacturer, model, and serial. Rows animate with a pulse skeleton while enrichment is in progress. Each row has an info tooltip showing the full audit trail with clickable FDA K-number links.
-
-**Stats Bar** - shows total device count, a segmented enrichment quality bar (green = high confidence, blue = medium, amber = low), and the fleet date span (oldest to newest year).
-
-**Device Type Distribution** - donut chart with a mini progress-bar legend showing the percentage breakdown of each device type category.
-
-**Fleet Age Distribution** - bar chart showing device count by manufacture year, giving a visual picture of fleet age.
-
-**CSV Export** - exports the enriched dataset sorted by manufactured date, containing the original columns plus `manufactured_date` and `device_type`.
+| Feature | Details |
+|---|---|
+| CSV Upload | Drag-and-drop or file picker. Normalizes column headers on parse so `serial number` (with a space, as in the challenge dataset) maps correctly to `serial_number`. |
+| Enrichment Table | Sorted ascending by manufactured date. Filterable by confidence tier (high / medium / low), device type dropdown, and free-text search across manufacturer, model, and serial. Rows animate with a pulse skeleton while enrichment is in progress. |
+| Audit Tooltips | Every row has an info icon that reveals the full audit trail: decoding method, FDA K-number, production window bounds, and any confidence adjustments. K-numbers are clickable links to the FDA CDRH database. |
+| Stats Bar | KPI tiles showing total device count, a segmented enrichment quality bar (green = high, blue = medium, amber = low), and the fleet date span from oldest to newest year. |
+| Device Type Pie | Donut chart with a mini progress-bar legend showing the percentage and count for each device type category. |
+| Fleet Age Chart | Bar chart showing device count by manufacture year, giving a visual picture of fleet age distribution. |
+| CSV Export | Exports the enriched dataset sorted by manufactured date, with the original columns plus `manufactured_date` and `device_type`. Appears only after enrichment completes. |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | React 19 + TypeScript |
-| Build tool | Vite 8 (with Rolldown bundler) |
-| Styling | Tailwind CSS v4 |
-| Charts | Recharts |
-| CSV parsing | PapaParse |
-| Concurrency | p-limit |
-| LLM | OpenAI gpt-5.4-mini |
-| Web search | Tavily Search API |
-| Medical device data | openFDA UDI + 510(k) APIs |
+| Layer | Technology | Why |
+|---|---|---|
+| Framework | React 19 + TypeScript | Component-based UI, strict typing throughout |
+| Build tool | Vite 8 with Rolldown | Fast builds, native ESM |
+| Styling | Tailwind CSS v4 | Utility-first, no style conflicts |
+| Charts | Recharts | Composable chart primitives |
+| CSV parsing | PapaParse | Streaming CSV parse with header normalization |
+| Concurrency | p-limit | Controls parallel row processing at 10 concurrent |
+| LLM | OpenAI gpt-5.4-mini | Fast, low-cost, structured output support |
+| Web search | Tavily Search API | Real-time serial format documentation retrieval |
+| Medical device data | openFDA UDI + 510k APIs | Authoritative regulatory source for device identity |
 
 ---
 
@@ -177,8 +276,8 @@ src/
   lib/
     enrichRow.ts          - Main 8-step pipeline, row memoization
     serialParse.ts        - Serial date extraction and validation logic
-    fda.ts                - openFDA UDI and 510(k) queries with scoring
-    fdaCache.ts           - Static cache loader for pre-built 510(k) data
+    fda.ts                - openFDA UDI and 510k queries with scoring
+    fdaCache.ts           - Static cache loader for pre-built 510k data
     llm.ts                - GPT serial decode and device classification
     tavily.ts             - Web search with 3-tier caching
     modelAnchors.ts       - 37 curated production window anchors
@@ -196,14 +295,13 @@ src/
     useEnrichment.ts      - p-limit concurrency runner, progress dispatch
 
 scripts/
-  build-fda-cache.mts     - Pre-fetches 510(k) data for challenge dataset
+  build-fda-cache.mts     - Pre-fetches 510k data for the challenge dataset
   batch-enrich-stats.mts  - Full-dataset enrichment stats and coverage report
   analyze-csv-gaps.mts    - Identifies manufacturer-model pairs with no coverage
-  audit-serial-spec.mts   - Per-OEM serial decoder validation
   spot-serial.mts         - Quick single-serial test tool
 
 public/
-  fda-model-cache.json                  - Pre-built 510(k) cache (21 entries)
+  fda-model-cache.json                  - Pre-built 510k cache (21 entries)
   hackathon-data/challenge_data-v1.csv  - Original challenge dataset
   architecture.html                     - Visual pipeline explainer
 ```
@@ -220,7 +318,7 @@ VITE_TAVILY_API_KEY=...
 VITE_FDA_API_KEY=...    # optional - a public fallback key is included
 ```
 
-The app degrades gracefully if keys are missing: Tavily and GPT are skipped, and the pipeline falls back to FDA UDI/510(k) and model anchors, which still cover the majority of the dataset.
+The app degrades gracefully if keys are missing: Tavily and GPT are skipped, and the pipeline falls back to FDA UDI/510k and model anchors, which still cover the majority of the dataset.
 
 ---
 
@@ -228,10 +326,10 @@ The app degrades gracefully if keys are missing: Tavily and GPT are skipped, and
 
 The enriched CSV contains the original three columns plus:
 
-| Column | Description |
-|---|---|
-| `manufactured_date` | ISO 8601 date (YYYY-MM-DD). Day is set to 15 and/or month to 06 when only year or year-month precision is known, making it clear the date is an estimate rather than a precise value. |
-| `device_type` | One of 13 standardized categories. |
+| Column | Type | Description |
+|---|---|---|
+| `manufactured_date` | ISO 8601 (YYYY-MM-DD) | Day set to `15` and month to `06` when only year or year-month precision is known, making estimates visually distinct from exact dates. |
+| `device_type` | String (13 categories) | Normalized from whatever raw label the data source returned. |
 
 [Download the enriched output here](https://drive.google.com/file/d/1X3NJWGhNEGVAh2e2eT7NAirZ_aeC7fvD/view?usp=sharing)
 
