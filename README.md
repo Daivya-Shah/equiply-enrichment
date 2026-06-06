@@ -1,6 +1,6 @@
 ﻿# Equiply Equipment Enrichment Hiring Hackathon
 
-Equiply Hackathon Submission - Daivya Shah
+Hackathon Submission - Daivya Shah
 
 [View Resume](https://www.daivyashah.com/assets/Daivya_Shah_Resume.pdf)
 
