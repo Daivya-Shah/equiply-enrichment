@@ -1,4 +1,4 @@
-﻿# Equiply Equipment Enrichment
+﻿# Equipment Enrichment (Equiply)
 
 Equiply Hackathon Submission - Daivya Shah
 
