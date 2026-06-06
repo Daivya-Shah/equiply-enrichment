@@ -1,4 +1,4 @@
-﻿# Equiply Equipment Enrichment Hiring Hackathon
+﻿# Equiply Equipment Enrichment Hackathon
 
 Hackathon Submission - Daivya Shah
 
